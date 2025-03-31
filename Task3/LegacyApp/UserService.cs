@@ -4,92 +4,60 @@ namespace LegacyApp
 {
     public class UserService
     {
-        private readonly IClientRepository _clientRepository;
-        private readonly IUserCreditService _creditService;
         private readonly IUserRepository _userRepository;
-
-        public UserService() : this(new ClientRepository(), new UserCreditServiceWrapper(), new UserRepository())
+        private readonly ClientRepository _clientRepository;
+        private readonly ICreditLimitCalculator _creditLimitCalculator;
+        
+        public UserService()
+            : this(new UserRepository(), new ClientRepository(), new CreditLimitCalculator(() => new UserCreditService()))
         {
         }
-
-        private UserService(
-            IClientRepository clientRepository, 
-            IUserCreditService creditService,
-            IUserRepository userRepository)
+        
+        public UserService(IUserRepository userRepository, ClientRepository clientRepository, ICreditLimitCalculator creditLimitCalculator)
         {
-            _clientRepository = clientRepository;
-            _creditService = creditService;
             _userRepository = userRepository;
+            _clientRepository = clientRepository;
+            _creditLimitCalculator = creditLimitCalculator;
         }
 
-        public bool AddUser(
-            string firstName, 
-            string lastName, 
-            string email, 
-            DateTime dateOfBirth, 
-            int clientId)
+        public bool AddUser(string firstName, string lastName, string email, DateTime dateOfBirth, int clientId)
         {
-            if (string.IsNullOrEmpty(firstName) || string.IsNullOrEmpty(lastName))
-            {
+            if (string.IsNullOrWhiteSpace(firstName) || string.IsNullOrWhiteSpace(lastName))
                 return false;
-            }
 
             if (!email.Contains("@") && !email.Contains("."))
-            {
                 return false;
-            }
-            
-            int age = CalculateAge(dateOfBirth, DateTime.Now);
+
+            int age = CalculateAge(dateOfBirth);
             if (age < 21)
-            {
                 return false;
-            }
-            
+
             var client = _clientRepository.GetById(clientId);
-            
+
             var user = new User
             {
-                Client = client,
-                DateOfBirth = dateOfBirth,
-                EmailAddress = email,
                 FirstName = firstName,
-                LastName = lastName
+                LastName = lastName,
+                EmailAddress = email,
+                DateOfBirth = dateOfBirth,
+                Client = client
             };
 
-            if (client.Type == "VeryImportantClient")
-            {
-                user.HasCreditLimit = false;
-            }
-            else if (client.Type == "ImportantClient")
-            {
-                int creditLimit = _creditService.GetCreditLimit(user.LastName, user.DateOfBirth);
-                user.CreditLimit = creditLimit * 2;
-            }
-            else
-            {
-                user.HasCreditLimit = true;
-                int creditLimit = _creditService.GetCreditLimit(user.LastName, user.DateOfBirth);
-                user.CreditLimit = creditLimit;
-            }
-            
-            if (user.HasCreditLimit && user.CreditLimit < 500)
-            {
-                return false;
-            }
-            
-            _userRepository.AddUser(user);
+            _creditLimitCalculator.ApplyCreditLimit(user);
 
+            if (user.HasCreditLimit && user.CreditLimit < 500)
+                return false;
+
+            _userRepository.AddUser(user);
             return true;
         }
 
-        private int CalculateAge(DateTime birthDate, DateTime now)
+        private int CalculateAge(DateTime birthDate)
         {
-            int age = now.Year - birthDate.Year;
-            if (now.Month < birthDate.Month 
-                || (now.Month == birthDate.Month && now.Day < birthDate.Day))
-            {
+            var today = DateTime.Today;
+            int age = today.Year - birthDate.Year;
+            if (birthDate > today.AddYears(-age))
                 age--;
-            }
             return age;
         }
     }
