@@ -13,7 +13,6 @@ namespace LegacyApp
 
         public void ApplyCreditLimit(User user)
         {
-            // Cast the client property from object to Client
             var client = user.Client as Client;
             if (client == null)
             {
